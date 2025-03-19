@@ -5,15 +5,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg2 curl ca-certificates wget ca-certificates gnupg gcc g++ make \
     && rm -rf /var/lib/apt/lists/*
 
-### BEGIN of CUDA installation ###
+##### BEGIN of CUDA 12.1 toolkit installation #####
 
-# Download and install libtinfo5, Ubuntu 24.04 has moved to libtinfo6. The former is still used by CUDA 12.4.
+# Download and install libtinfo5, Ubuntu 24.04 has moved to libtinfo6. 
+# The former is still used by CUDA toolkit up to 12.4 at least (and consequently 12.1).
 RUN wget http://security.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb \
     && dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb \
     && rm libtinfo5_6.3-2ubuntu0.1_amd64.deb
 
 
-# Install NVIDIA CUDA 12.4 Toolkit from NVIDIA's official package repository for Ubuntu 22.04 (there's no version for 24.04 sadly)
+# Install NVIDIA CUDA 12.1 Toolkit from NVIDIA's official package repository for Ubuntu 22.04.
+# (NVIDIA repos repositories don't have it for Ubuntu 24.04).
 
 RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
 RUN dpkg -i cuda-keyring_1.1-1_all.deb
@@ -24,10 +26,10 @@ RUN apt-get install -y cuda-toolkit-12-1
 ENV PATH=/usr/local/cuda-12.1/bin:${PATH}
 ENV LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:${LD_LIBRARY_PATH}
 
-# Ensure CUDA installation
+# Ensure CUDA toolkit installation
 RUN nvcc --version
 
-### END of CUDA installation ###
+##### END of CUDA toolkit installation #####
 
 
 ENV TZ=US/Pacific
@@ -35,8 +37,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 RUN apt-get update --fix-missing && \
     apt-get install -y libgtk2.0-dev && \
-    apt-get install -y wget bzip2 ca-certificates curl git vim tmux g++ gcc build-essential cmake checkinstall gfortran libjpeg8-dev libtiff5-dev pkg-config yasm libavcodec-dev libavformat-dev libswscale-dev 
-    # libdc1394-22-dev libxine2-dev libv4l-dev qt5-default libgtk2.0-dev libtbb-dev libatlas-base-dev libfaac-dev libmp3lame-dev libtheora-dev libvorbis-dev libxvidcore-dev libopencore-amrnb-dev libopencore-amrwb-dev x264 v4l-utils libprotobuf-dev protobuf-compiler libgoogle-glog-dev libgflags-dev libgphoto2-dev libhdf5-dev doxygen libflann-dev libboost-all-dev proj-data libproj-dev libyaml-cpp-dev cmake-curses-gui libzmq3-dev freeglut3-dev
+    apt-get install -y wget bzip2 ca-certificates curl git vim tmux g++ gcc build-essential cmake checkinstall gfortran libjpeg8-dev libtiff5-dev pkg-config yasm libavcodec-dev libavformat-dev libswscale-dev
 
 
 RUN cd / && git clone https://github.com/pybind/pybind11 &&\
@@ -74,9 +75,11 @@ RUN conda init bash &&\
 RUN pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
 RUN pip install scipy joblib scikit-learn ruamel.yaml trimesh pyyaml opencv-python imageio open3d transformations warp-lang einops kornia pyrender
 
-RUN cd / && git clone --recursive https://github.com/NVIDIAGameWorks/kaolin
-RUN conda activate my && cd /kaolin &&\
-    FORCE_CUDA=1 python setup.py develop
+# Skip NVIDIA KAOLIN installation for now. We don't need it because we are only going to perform 3D model-based pose estimation.
+# Kaolin is solely used for model-free pose estimation pipelines.
+# RUN cd / && git clone --recursive https://github.com/NVIDIAGameWorks/kaolin
+# RUN conda activate my && cd /kaolin &&\
+#     FORCE_CUDA=1 python setup.py develop
 
 RUN cd / && git clone https://github.com/NVlabs/nvdiffrast &&\
     conda activate my && cd /nvdiffrast && pip install .
@@ -89,7 +92,8 @@ RUN conda activate my &&\
 
 RUN apt-get install -y libboost-all-dev
 
-# Need to install gcc-12 and g++-12 because NVCC in CUDA 12.1 does not support GNU versions above 12:
+# Need to install gcc-12 and g++-12 because NVCC in CUDA 12.1 does not support GNU versions above 12.
+# Ubuntu 24.04 has moved to 13.x versions.
 RUN apt update &&\
     apt install -y gcc-12 g++-12 &&\
     update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 12 &&\
