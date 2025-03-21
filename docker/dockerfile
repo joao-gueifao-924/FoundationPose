@@ -1,17 +1,45 @@
-FROM nvidia/cudagl:11.3.0-devel-ubuntu20.04
+FROM ubuntu:24.04   
 
-ENV TZ=US/Pacific
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+# Install dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gnupg2 curl ca-certificates wget ca-certificates gnupg gcc g++ make \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update --fix-missing && \
+##### BEGIN of CUDA 12.1 toolkit installation #####
+
+# Download and install libtinfo5, Ubuntu 24.04 has moved to libtinfo6. 
+# The former is still used by CUDA toolkit up to 12.4 at least (and consequently 12.1).
+RUN wget http://security.ubuntu.com/ubuntu/pool/universe/n/ncurses/libtinfo5_6.3-2ubuntu0.1_amd64.deb \
+    && dpkg -i libtinfo5_6.3-2ubuntu0.1_amd64.deb \
+    && rm libtinfo5_6.3-2ubuntu0.1_amd64.deb
+
+
+# Install NVIDIA CUDA 12.1 Toolkit from NVIDIA's official package repository for Ubuntu 22.04.
+# (NVIDIA repos repositories don't have it for Ubuntu 24.04).
+
+RUN wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+RUN dpkg -i cuda-keyring_1.1-1_all.deb
+RUN apt-get update
+RUN apt-get install -y cuda-toolkit-12-1
+
+# Set environment variables
+ENV PATH=/usr/local/cuda-12.1/bin:${PATH}
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.1/lib64:${LD_LIBRARY_PATH}
+
+# Ensure CUDA toolkit installation
+RUN nvcc --version
+
+##### END of CUDA toolkit installation #####
+
+RUN apt-get update && \
     apt-get install -y libgtk2.0-dev && \
-    apt-get install -y wget bzip2 ca-certificates curl git vim tmux g++ gcc build-essential cmake checkinstall gfortran libjpeg8-dev libtiff5-dev pkg-config yasm libavcodec-dev libavformat-dev libswscale-dev libdc1394-22-dev libxine2-dev libv4l-dev qt5-default libgtk2.0-dev libtbb-dev libatlas-base-dev libfaac-dev libmp3lame-dev libtheora-dev libvorbis-dev libxvidcore-dev libopencore-amrnb-dev libopencore-amrwb-dev x264 v4l-utils libprotobuf-dev protobuf-compiler libgoogle-glog-dev libgflags-dev libgphoto2-dev libhdf5-dev doxygen libflann-dev libboost-all-dev proj-data libproj-dev libyaml-cpp-dev cmake-curses-gui libzmq3-dev freeglut3-dev
+    apt-get install -y wget bzip2 ca-certificates curl git vim tmux g++ gcc build-essential cmake checkinstall gfortran libjpeg8-dev libtiff5-dev pkg-config yasm libavcodec-dev libavformat-dev libswscale-dev
 
 
 RUN cd / && git clone https://github.com/pybind/pybind11 &&\
     cd pybind11 && git checkout v2.10.0 &&\
     mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DPYBIND11_INSTALL=ON -DPYBIND11_TEST=OFF &&\
-    make -j6 && make install
+    make -j$(nproc) && make install
 
 
 RUN cd / && wget https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz &&\
@@ -24,37 +52,58 @@ RUN cd / && wget https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.t
 
 SHELL ["/bin/bash", "--login", "-c"]
 
-RUN cd / && wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O /miniconda.sh && \
-    /bin/bash /miniconda.sh -b -p /opt/conda &&\
-    ln -s /opt/conda/etc/profile.d/conda.sh /etc/profile.d/conda.sh &&\
-    echo ". /opt/conda/etc/profile.d/conda.sh" >> ~/.bashrc &&\
-    /bin/bash -c "source ~/.bashrc" && \
-    /opt/conda/bin/conda update -n base -c defaults conda -y &&\
-    /opt/conda/bin/conda create -n my python=3.8
+RUN apt-get install -y python-is-python3 python3-pip python3.12-venv
+RUN python -m pip config set global.break-system-packages true
 
 
-ENV PATH $PATH:/opt/conda/envs/my/bin
+RUN pip install torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cu121
 
-RUN conda init bash &&\
-    echo "conda activate my" >> ~/.bashrc &&\
-    conda activate my &&\
-    pip install torch==2.0.0+cu118 torchvision==0.15.1+cu118 torchaudio==2.0.1 --index-url https://download.pytorch.org/whl/cu118 &&\
-    pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable" &&\
-    pip install scipy joblib scikit-learn ruamel.yaml trimesh pyyaml opencv-python imageio open3d transformations warp-lang einops kornia pyrender
+RUN MAX_JOBS=$(nproc) pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+RUN pip install scipy joblib scikit-learn ruamel.yaml trimesh pyyaml opencv-python imageio open3d transformations warp-lang einops kornia pyrender
 
-RUN cd / && git clone --recursive https://github.com/NVIDIAGameWorks/kaolin
-RUN conda activate my && cd /kaolin &&\
-    FORCE_CUDA=1 python setup.py develop
+# Skip NVIDIA KAOLIN installation for now. We don't need it because we are only going to perform 3D model-based pose estimation.
+# Kaolin is solely used for model-free pose estimation pipelines.
+# RUN cd / && git clone --recursive https://github.com/NVIDIAGameWorks/kaolin
+# RUN conda activate my && cd /kaolin &&\
+#     FORCE_CUDA=1 python setup.py develop
 
-RUN cd / && git clone https://github.com/NVlabs/nvdiffrast &&\
-    conda activate my && cd /nvdiffrast && pip install .
+RUN cd / && git clone https://github.com/NVlabs/nvdiffrast && cd /nvdiffrast && pip install .
 
 ENV OPENCV_IO_ENABLE_OPENEXR=1
 
-RUN conda activate my &&\
-    pip install scikit-image meshcat webdataset omegaconf pypng roma seaborn opencv-contrib-python openpyxl wandb imgaug Ninja xlsxwriter timm albumentations xatlas rtree nodejs jupyterlab objaverse g4f ultralytics==8.0.120 pycocotools videoio numba &&\
-    conda install -y -c anaconda h5py
+RUN pip install scikit-image meshcat webdataset omegaconf pypng roma seaborn opencv-contrib-python openpyxl wandb imgaug Ninja xlsxwriter timm albumentations xatlas rtree nodejs jupyterlab objaverse g4f ultralytics==8.0.120 pycocotools videoio numba
+RUN pip install h5py
 
+RUN apt-get install -y libboost-all-dev
 
+# Need to install gcc-12 and g++-12 because NVCC in CUDA 12.1 does not support GNU versions above 12.
+# Ubuntu 24.04 has moved to 13.x versions.
+RUN apt update &&\
+    apt install -y gcc-12 g++-12 &&\
+    update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 12 &&\
+    update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 12 &&\
+    update-alternatives --install /usr/bin/cc cc /usr/bin/gcc-12 12 &&\
+    update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++-12 12
+
+# Need to downgrade numpy because PyBind 2.10.0 is incompatible with Numpy 2.x.
+RUN pip install 'numpy<2'
+
+ENV NVIDIA_DISABLE_REQUIRE=1
 ENV SHELL=/bin/bash
 RUN ln -sf /bin/bash /bin/sh
+
+COPY demo_data demo_data
+
+COPY learning learning
+COPY mycpp mycpp
+COPY weights weights
+COPY datareader.py datareader.py
+COPY estimater.py estimater.py
+COPY offscreen_renderer.py offscreen_renderer.py
+COPY run_demo.py run_demo.py
+COPY Utils.py Utils.py
+
+COPY build_all.sh build_all.sh
+RUN chmod +x build_all.sh
+RUN ./build_all.sh
+CMD ["python", "run_demo.py"]
