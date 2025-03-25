@@ -1012,3 +1012,110 @@ def make_yaml_dumpable(D):
         D[d][i] = make_yaml_dumpable(D[d][i])
       continue
   return dict(D)
+
+
+
+
+
+def axis_angle_to_matrix(axis_angle: torch.Tensor) -> torch.Tensor:
+    """
+    Convert rotations given as axis/angle to rotation matrices.
+
+    This function is derived from pytorch3d/transforms/rotation_conversions.py
+
+    Args:
+        axis_angle: Rotations given as a vector in axis angle form,
+            as a tensor of shape (..., 3), where the magnitude is
+            the angle turned anticlockwise in radians around the
+            vector's direction.
+
+    Returns:
+        Rotation matrices as tensor of shape (..., 3, 3).
+    """
+
+    shape = axis_angle.shape
+    device, dtype = axis_angle.device, axis_angle.dtype
+
+    angles = torch.norm(axis_angle, p=2, dim=-1, keepdim=True).unsqueeze(-1)
+
+    rx, ry, rz = axis_angle[..., 0], axis_angle[..., 1], axis_angle[..., 2]
+    zeros = torch.zeros(shape[:-1], dtype=dtype, device=device)
+    cross_product_matrix = torch.stack(
+      [zeros, -rz, ry, rz, zeros, -rx, -ry, rx, zeros], dim=-1
+    ).view(shape + (3,))
+    cross_product_matrix_sqrd = cross_product_matrix @ cross_product_matrix
+
+    identity = torch.eye(3, dtype=dtype, device=device)
+    angles_sqrd = angles * angles
+    angles_sqrd = torch.where(angles_sqrd == 0, 1, angles_sqrd)
+    return (
+            identity.expand(cross_product_matrix.shape)
+            + torch.sinc(angles / torch.pi) * cross_product_matrix
+            + ((1 - torch.cos(angles)) / angles_sqrd) * cross_product_matrix_sqrd
+    )
+
+
+def so3_exp_map(log_rot: torch.Tensor, eps: float = 0.0001) -> torch.Tensor:
+  """
+  Convert a batch of logarithmic representations of rotation matrices `log_rot`
+  to a batch of 3x3 rotation matrices using Rodrigues formula [1].
+
+  In the logarithmic representation, each rotation matrix is represented as
+  a 3-dimensional vector (`log_rot`) who's l2-norm and direction correspond
+  to the magnitude of the rotation angle and the axis of rotation respectively.
+
+  The conversion has a singularity around `log(R) = 0`
+  which is handled by clamping controlled with the `eps` argument.
+
+  This function is derived from pytorch3d/transforms/so3.py
+
+  Args:
+      log_rot: Batch of vectors of shape `(minibatch, 3)`.
+      eps: A float constant handling the conversion singularity.
+
+  Returns:
+      Batch of rotation matrices of shape `(minibatch, 3, 3)`.
+
+  Raises:
+      ValueError if `log_rot` is of incorrect shape.
+
+  [1] https://en.wikipedia.org/wiki/Rodrigues%27_rotation_formula
+  """
+  _, dim = log_rot.shape
+  if dim != 3:
+    raise ValueError("Input tensor shape has to be Nx3.")
+
+  nrms = (log_rot * log_rot).sum(1)
+
+  skews = hat(log_rot)
+
+  R = axis_angle_to_matrix(log_rot)
+
+  return R
+
+
+  def rotation_6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
+    """
+    Converts 6D rotation representation by Zhou et al. [1] to rotation matrix
+    using Gram--Schmidt orthogonalization per Section B of [1].
+
+    This function is derived from pytorch3d/transforms/rotation_conversions.py
+
+    Args:
+        d6: 6D rotation representation, of size (*, 6)
+
+    Returns:
+        batch of rotation matrices of size (*, 3, 3)
+
+    [1] Zhou, Y., Barnes, C., Lu, J., Yang, J., & Li, H.
+    On the Continuity of Rotation Representations in Neural Networks.
+    IEEE Conference on Computer Vision and Pattern Recognition, 2019.
+    Retrieved from http://arxiv.org/abs/1812.07035
+    """
+
+    a1, a2 = d6[..., :3], d6[..., 3:]
+    b1 = F.normalize(a1, dim=-1)
+    b2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
+    b2 = F.normalize(b2, dim=-1)
+    b3 = torch.cross(b1, b2, dim=-1)
+    return torch.stack((b1, b2, b3), dim=-2)
