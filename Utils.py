@@ -1082,76 +1082,72 @@ def so3_exp_map(log_rot: torch.Tensor, eps: float = 0.0001) -> torch.Tensor:
   if dim != 3:
     raise ValueError("Input tensor shape has to be Nx3.")
 
-  nrms = (log_rot * log_rot).sum(1)
-
-  skews = hat(log_rot)
-
   R = axis_angle_to_matrix(log_rot)
 
   return R
 
 
-  def rotation_6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
-    """
-    Converts 6D rotation representation by Zhou et al. [1] to rotation matrix
-    using Gram--Schmidt orthogonalization per Section B of [1].
+def rotation_6d_to_matrix(d6: torch.Tensor) -> torch.Tensor:
+  """
+  Converts 6D rotation representation by Zhou et al. [1] to rotation matrix
+  using Gram--Schmidt orthogonalization per Section B of [1].
 
-    This function is derived from pytorch3d/transforms/rotation_conversions.py
+  This function is derived from pytorch3d/transforms/rotation_conversions.py
 
-    Args:
-        d6: 6D rotation representation, of size (*, 6)
+  Args:
+      d6: 6D rotation representation, of size (*, 6)
 
-    Returns:
-        batch of rotation matrices of size (*, 3, 3)
+  Returns:
+      batch of rotation matrices of size (*, 3, 3)
 
-    [1] Zhou, Y., Barnes, C., Lu, J., Yang, J., & Li, H.
-    On the Continuity of Rotation Representations in Neural Networks.
-    IEEE Conference on Computer Vision and Pattern Recognition, 2019.
-    Retrieved from http://arxiv.org/abs/1812.07035
-    """
+  [1] Zhou, Y., Barnes, C., Lu, J., Yang, J., & Li, H.
+  On the Continuity of Rotation Representations in Neural Networks.
+  IEEE Conference on Computer Vision and Pattern Recognition, 2019.
+  Retrieved from http://arxiv.org/abs/1812.07035
+  """
 
-    a1, a2 = d6[..., :3], d6[..., 3:]
-    b1 = F.normalize(a1, dim=-1)
-    b2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
-    b2 = F.normalize(b2, dim=-1)
-    b3 = torch.cross(b1, b2, dim=-1)
-    return torch.stack((b1, b2, b3), dim=-2)
+  a1, a2 = d6[..., :3], d6[..., 3:]
+  b1 = F.normalize(a1, dim=-1)
+  b2 = a2 - (b1 * a2).sum(-1, keepdim=True) * b1
+  b2 = F.normalize(b2, dim=-1)
+  b3 = torch.cross(b1, b2, dim=-1)
+  return torch.stack((b1, b2, b3), dim=-2)
 
-  def hat(v: torch.Tensor) -> torch.Tensor:
-    """
-    Compute the Hat operator [1] of a batch of 3D vectors.
+def hat(v: torch.Tensor) -> torch.Tensor:
+  """
+  Compute the Hat operator [1] of a batch of 3D vectors.
 
-    This function is derived from pytorch3d/transforms/so3.py
+  This function is derived from pytorch3d/transforms/so3.py
 
-    Args:
-        v: Batch of vectors of shape `(minibatch , 3)`.
+  Args:
+      v: Batch of vectors of shape `(minibatch , 3)`.
 
-    Returns:
-        Batch of skew-symmetric matrices of shape
-        `(minibatch, 3 , 3)` where each matrix is of the form:
-            `[    0  -v_z   v_y ]
-             [  v_z     0  -v_x ]
-             [ -v_y   v_x     0 ]`
+  Returns:
+      Batch of skew-symmetric matrices of shape
+      `(minibatch, 3 , 3)` where each matrix is of the form:
+          `[    0  -v_z   v_y ]
+           [  v_z     0  -v_x ]
+           [ -v_y   v_x     0 ]`
 
-    Raises:
-        ValueError if `v` is of incorrect shape.
+  Raises:
+      ValueError if `v` is of incorrect shape.
 
-    [1] https://en.wikipedia.org/wiki/Hat_operator
-    """
+  [1] https://en.wikipedia.org/wiki/Hat_operator
+  """
 
-    N, dim = v.shape
-    if dim != 3:
-      raise ValueError("Input vectors have to be 3-dimensional.")
+  N, dim = v.shape
+  if dim != 3:
+    raise ValueError("Input vectors have to be 3-dimensional.")
 
-    h = torch.zeros((N, 3, 3), dtype=v.dtype, device=v.device)
+  h = torch.zeros((N, 3, 3), dtype=v.dtype, device=v.device)
 
-    x, y, z = v.unbind(1)
+  x, y, z = v.unbind(1)
 
-    h[:, 0, 1] = -z
-    h[:, 0, 2] = y
-    h[:, 1, 0] = z
-    h[:, 1, 2] = -x
-    h[:, 2, 0] = -y
-    h[:, 2, 1] = x
+  h[:, 0, 1] = -z
+  h[:, 0, 2] = y
+  h[:, 1, 0] = z
+  h[:, 1, 2] = -x
+  h[:, 2, 0] = -y
+  h[:, 2, 1] = x
 
-    return h
+  return h
