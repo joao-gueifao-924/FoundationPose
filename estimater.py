@@ -21,7 +21,8 @@ class FoundationPose:
     self.ignore_normal_flip = True
     self.debug = debug
     self.debug_dir = debug_dir
-    os.makedirs(debug_dir, exist_ok=True)
+    if self.debug_dir is not None:
+      os.makedirs(debug_dir, exist_ok=True)
 
     self.reset_object(model_pts, model_normals, symmetry_tfs=symmetry_tfs, mesh=mesh)
     self.make_rotation_grid(min_n_views=40, inplane_step=60)
@@ -184,8 +185,7 @@ class FoundationPose:
     valid = (depth>=0.001) & (ob_mask>0)
     if valid.sum()<4:
       logging.info(f'valid too small, return')
-      pose = np.eye(4)
-      pose[:3,3] = self.guess_translation(depth=depth, mask=ob_mask, K=K)
+      pose = None
       return pose
 
     if self.debug>=2:
@@ -213,11 +213,11 @@ class FoundationPose:
 
     xyz_map = depth2xyzmap(depth, K)
     poses, vis = self.refiner.predict(mesh=self.mesh, mesh_tensors=self.mesh_tensors, rgb=rgb, depth=depth, K=K, ob_in_cams=poses.data.cpu().numpy(), normal_map=normal_map, xyz_map=xyz_map, glctx=self.glctx, mesh_diameter=self.diameter, iteration=iteration, get_vis=self.debug>=2)
-    if vis is not None:
+    if vis is not None and self.debug_dir is not None:
       imageio.imwrite(f'{self.debug_dir}/vis_refiner.png', vis)
 
     scores, vis = self.scorer.predict(mesh=self.mesh, rgb=rgb, depth=depth, K=K, ob_in_cams=poses.data.cpu().numpy(), normal_map=normal_map, mesh_tensors=self.mesh_tensors, glctx=self.glctx, mesh_diameter=self.diameter, get_vis=self.debug>=2)
-    if vis is not None:
+    if vis is not None and self.debug_dir is not None:
       imageio.imwrite(f'{self.debug_dir}/vis_score.png', vis)
 
     add_errs = self.compute_add_err_to_gt_pose(poses)
@@ -268,3 +268,35 @@ class FoundationPose:
     return (pose@self.get_tf_to_centered_mesh()).data.cpu().numpy().reshape(4,4)
 
 
+class PoseEstimator:
+  _glctx = None
+  _scorer = None
+  _refiner = None
+  _est = None
+  _est_refine_iter=5
+  _debug_dir = None
+  _debug = 0
+
+  def __init__(self, est_refine_iter=5, debug_dir=None, debug=0):
+    self._glctx = dr.RasterizeCudaContext()
+    self._scorer = ScorePredictor()
+    self._refiner = PoseRefinePredictor()
+    _est = None
+    _est_refine_iter = est_refine_iter
+    _debug_dir = debug_dir
+    _debug = debug
+
+  def estimate(self, K: np.array, mesh: trimesh.base.Trimesh, color: np.ndarray, depth: np.array, mask: np.array) -> np.array:
+    _est = FoundationPose(model_pts=mesh.vertices,
+                                model_normals=mesh.vertex_normals,
+                                mesh=mesh,
+                                scorer=self._scorer,
+                                refiner=self._refiner,
+                                debug_dir=self._debug_dir,
+                                debug=self._debug,
+                                glctx=self._glctx)
+    
+    pose = _est.register(K=K, rgb=color, depth=depth, ob_mask=mask, iteration=self._est_refine_iter)
+    return pose
+
+  
