@@ -19,6 +19,7 @@ from learning.models.refine_network import RefineNet
 from learning.datasets.h5_dataset import *
 from Utils import *
 from datareader import *
+import gc
 
 
 
@@ -187,6 +188,8 @@ class PoseRefinePredictor:
         A = torch.cat([pose_data.rgbAs[b:b+bs].cuda(), pose_data.xyz_mapAs[b:b+bs].cuda()], dim=1).float()
         B = torch.cat([pose_data.rgbBs[b:b+bs].cuda(), pose_data.xyz_mapBs[b:b+bs].cuda()], dim=1).float()
         logging.info("forward start")
+        torch.cuda.empty_cache()
+        gc.collect()
         with torch.cuda.amp.autocast(enabled=self.amp):
           output = self.model(A,B)
         for k in output:
@@ -235,6 +238,7 @@ class PoseRefinePredictor:
 
     B_in_cams_out = B_in_cams@torch.tensor(tf_to_center[None], device='cuda', dtype=torch.float)
     torch.cuda.empty_cache()
+    gc.collect()
     self.last_trans_update = trans_delta
     self.last_rot_update = rot_mat_delta
 
@@ -290,6 +294,7 @@ class PoseRefinePredictor:
       canvas_refined = make_grid_image(canvas_refined, nrow=1, padding=padding, pad_value=255)
       canvas = make_grid_image([canvas, canvas_refined], nrow=2, padding=padding, pad_value=255)
       torch.cuda.empty_cache()
+      gc.collect()
       return B_in_cams_out, canvas
 
     return B_in_cams_out, None

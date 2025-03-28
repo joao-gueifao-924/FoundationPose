@@ -87,7 +87,7 @@ if __name__=='__main__':
                     vis = draw_xyz_axis(vis, ob_in_cam=center_pose, scale=0.1, K=K, thickness=3, transparency=0, is_input_rgb=True)
                     
                     # Upscale vis color image by a factor of 2 for human visualization purposes.
-                    vis = cv2.resize(vis, (vis.shape[1] * 5, vis.shape[0] * 5), interpolation=cv2.INTER_CUBIC)
+                    vis = cv2.resize(vis, (vis.shape[1] * 2, vis.shape[0] * 2), interpolation=cv2.INTER_CUBIC)
                     cv2.imshow(f"{(group_id, scene_id, camera_id)} - {(object_class_id, object_instance_id)}", vis[...,::-1])
                     cv2.waitKey(3000)
                     cv2.destroyAllWindows()
