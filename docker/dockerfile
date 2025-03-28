@@ -57,8 +57,6 @@ RUN python -m pip config set global.break-system-packages true
 
 
 RUN pip install torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cu121
-
-RUN MAX_JOBS=$(nproc) pip install "git+https://github.com/facebookresearch/pytorch3d.git@stable"
 RUN pip install scipy joblib scikit-learn ruamel.yaml trimesh pyyaml opencv-python imageio open3d transformations warp-lang einops kornia pyrender
 
 # Skip NVIDIA KAOLIN installation for now. We don't need it because we are only going to perform 3D model-based pose estimation.
