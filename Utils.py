@@ -676,6 +676,10 @@ def draw_xyz_axis(color, ob_in_cam, scale=0.1, K=np.eye(3), thickness=3, transpa
   '''
   @color: BGR
   '''
+
+  # avoid overwriting original color image
+  color = color.copy()
+
   if is_input_rgb:
     color = cv2.cvtColor(color,cv2.COLOR_RGB2BGR)
   xx = np.array([1,0,0,1]).astype(float)
@@ -719,6 +723,9 @@ def draw_posed_3d_box(K, img, ob_in_cam, bbox, line_color=(0,255,0), linewidth=2
   xmin, ymin, zmin = min_xyz
   max_xyz = bbox.max(axis=0)
   xmax, ymax, zmax = max_xyz
+
+  # avoid overwriting original img
+  img = img.copy()
 
   def draw_line3d(start,end,img):
     pts = np.stack((start,end),axis=0).reshape(-1,3)
