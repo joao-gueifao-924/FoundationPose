@@ -11,11 +11,16 @@ from estimater import *
 from datareader import *
 import argparse
 
-import torch, gc
+import torch, gc, os
+from datetime import datetime
 import time
 
 #os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
 #os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
+
+ALGORITHM_OUTPUT_ROOT_FOLDER = "/algorithm_output"
+timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
+ALGORITHM_OUTPUT = ALGORITHM_OUTPUT_ROOT_FOLDER + "/" + timestamp
 
 import debugpy
 debugpy.listen(("0.0.0.0", 5678))
@@ -31,8 +36,9 @@ if __name__=='__main__':
     set_seed(0)
     os.system(f'rm -rf {debug_dir}/* && mkdir -p {debug_dir}/track_vis {debug_dir}/ob_in_cam')
 
-    print("Waiting for client to attach...")
-    debugpy.wait_for_client()
+    if False:
+        print("Waiting for client to attach...")
+        debugpy.wait_for_client()
 
     #reader = YcbineoatReader(video_dir=test_scene_dir, shorter_side=500, zfar=np.inf)
     reader = IpdReaderTRAIN(root_folder=ipd_dataset_root_dir, shorter_side=shorter_side)
@@ -88,9 +94,19 @@ if __name__=='__main__':
                     
                     # Upscale vis color image by a factor of 2 for human visualization purposes.
                     vis = cv2.resize(vis, (vis.shape[1] * 2, vis.shape[0] * 2), interpolation=cv2.INTER_CUBIC)
-                    cv2.imshow(f"{(group_id, scene_id, camera_id)} - {(object_class_id, object_instance_id)}", vis[...,::-1])
-                    cv2.waitKey(3000)
-                    cv2.destroyAllWindows()
+                    
+                    if os.path.isdir(ALGORITHM_OUTPUT_ROOT_FOLDER):
+                        group_id_path = ALGORITHM_OUTPUT + "/" + f"{group_id:06d}"
+                        scene_id_path = group_id_path + "/" + f"{scene_id:06d}"
+                        camera_id_path = scene_id_path + "/" + str(camera_id) # no leading zeros for camera id numeric value
+                        os.makedirs(camera_id_path, exist_ok=True)
+                        image_title = f"{object_instance_id:06d}"
+                        cv2.imwrite(camera_id_path + "/" + image_title + ".png", vis[...,::-1])
+                    else:
+                        cv2.imshow(f"{(group_id, scene_id, camera_id)} - {(object_class_id, object_instance_id)}", vis[...,::-1])
+                        cv2.waitKey(3000)
+                        cv2.destroyAllWindows()
+
                     
 
 
