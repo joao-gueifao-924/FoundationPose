@@ -616,7 +616,7 @@ class TudlReader(BopBaseReader):
 # Additionally, there are layout differences between training and test datasets.
 #
 # Layout of the training dataset:
-#
+# TODO: Expand with the introduction of the Photoneo camera, which provides RGB and depth images.
 # There are three cameras, each capturing six types of imaging:
 #   - AOLP (Angle of Linear Polarization)
 #   - Depth
@@ -633,9 +633,12 @@ class TudlReader(BopBaseReader):
 # Below, X is either 1, 2, or 3, representing the three cameras. For example, rgb_cam{X} represents three folders: 
 # rgb_cam1, rgb_cam2, and rgb_cam3.
 #
-# Below, {group_id} is {000000, 000001, 000002, ...}. Groups are collections of unrelated scenes, unlike the BOP dataset 
-# guidelines. For the IPD training dataset, groups can be interpreted as collections of multiple scenes imaged by the 
-# three cameras.
+# Below, {group_id} is {000000, 000001, 000002, ...}. Groups are collections of scenes, unlike the BOP dataset 
+# guidelines. For the IPD training dataset, groups can be interpreted as collections of multiple unrelated scenes imaged by the 
+# three cameras. On the other hand, for the IPD test dataset, each group contains a single scene, albeit imaged with 
+# several variations -- although the objects are laid out in the same manner inside a bin/on a tray, that same bin or tray
+# can move between images and lighting conditions can also change. For the sake of simplicity, we'll consider
+# each variation of a same scene in the test dataset as different scene altogether, similarly to the train dataset.
 #
 # Below, {scene_id} is {000000, 000001, 000002, ...}. A scene ID represents the same world scene imaged by different cameras. 
 # For example, train_pbr/rgb_cam1/000003.png and train_pbr/rgb_cam2/000003.png are different perspectives of the same scene.
@@ -715,8 +718,7 @@ class TudlReader(BopBaseReader):
 #       object_gt_cam1 = scene_gt_cam1[same_scene_id][same_array_index]
 #       object_gt_info_cam1 = scene_gt_info_cam1[same_scene_id][same_array_index]
 #       object_class_id = object_gt_cam1["obj_id"]
-
-class IpdReaderTRAIN:
+class IpdReader:
     def __init__(self, root_folder="/ipd", shorter_side=None):
       self.root_folder = root_folder
       self.train_folder = f"{root_folder}/train_pbr"
@@ -725,15 +727,13 @@ class IpdReaderTRAIN:
       self.scene_gt = {}
       self.scene_gt_info = {}
       self.shorter_side = shorter_side
-      self.object_meshes = {}
+      self.object_meshes, self.models_info = IpdReader.load_object_meshes(self.mesh_folder)
 
       # Preload camera and ground truth info for each camera, for all groups and scenes
       for cam in [1, 2, 3]:
         self.scene_camera[cam] = self._load_json_data(f"scene_camera_cam{cam}.json")
         self.scene_gt[cam] = self._load_json_data(f"scene_gt_cam{cam}.json")
         self.scene_gt_info[cam] = self._load_json_data(f"scene_gt_info_cam{cam}.json")
-
-      self._load_object_meshes()
 
       # Determine downscale factor if target image shorter_side is provided
       if shorter_side is not None:
@@ -752,18 +752,21 @@ class IpdReaderTRAIN:
       else:
         self.downscale = 1
 
-    def _load_object_meshes(self):
+    @staticmethod
+    def load_object_meshes(mesh_folder):
       """Load all object meshes from the models directory."""
+      object_meshes = {}
+      models_info = {}
       try:
         # Load models_info.json first
-        models_info_path = os.path.join(self.mesh_folder, "models_info.json")
+        models_info_path = os.path.join(mesh_folder, "models_info.json")
         with open(models_info_path, 'r') as f:
           raw_models_info = json.load(f)
           # Convert object class ID keys from strings to integers
-          self.models_info = {int(k): v for k, v in raw_models_info.items()}
+          models_info = {int(k): v for k, v in raw_models_info.items()}
         
         # Load each object mesh
-        mesh_files = glob.glob(os.path.join(self.mesh_folder, "obj_*.ply"))
+        mesh_files = glob.glob(os.path.join(mesh_folder, "obj_*.ply"))
         for mesh_file in mesh_files:
           # Extract object ID from filename (e.g., "obj_000001.ply" -> 1)
           obj_id = int(os.path.basename(mesh_file).split('_')[1].split('.')[0])
@@ -771,13 +774,12 @@ class IpdReaderTRAIN:
             mesh = trimesh.load(mesh_file)
             # Convert vertices from millimeters to meters
             mesh.vertices = mesh.vertices / 1000.0
-            self.object_meshes[obj_id] = mesh
+            object_meshes[obj_id] = mesh
           except Exception as e:
             print(f"Failed to load mesh for object {obj_id}: {e}")
       except Exception as e:
         print(f"Error loading object meshes: {e}")
-        self.object_meshes = {}
-        self.models_info = {}
+      return object_meshes, models_info
 
     def _load_json_data(self, filename: str) -> dict:
         """Helper to load JSON data into memory."""

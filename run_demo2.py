@@ -41,7 +41,7 @@ if __name__=='__main__':
         debugpy.wait_for_client()
 
     #reader = YcbineoatReader(video_dir=test_scene_dir, shorter_side=500, zfar=np.inf)
-    reader = IpdReaderTRAIN(root_folder=ipd_dataset_root_dir, shorter_side=shorter_side)
+    reader = IpdReader(root_folder=ipd_dataset_root_dir, shorter_side=shorter_side)
 
     # get only one group and one camera for now:
     group_id = reader.enumerate_groups()[0]
