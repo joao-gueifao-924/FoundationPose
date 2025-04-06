@@ -85,7 +85,7 @@ COLOR_MAP=np.array([[0, 0, 0], #Ignore
                     ])
 
 
-def set_logging_format(level=logging.INFO):
+def set_logging_format(level=logging.WARNING):
   importlib.reload(logging)
   FORMAT = '[%(funcName)s()] %(message)s'
   logging.basicConfig(level=level, format=FORMAT)
