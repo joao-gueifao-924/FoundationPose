@@ -99,12 +99,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /mycpp/build /mycpp/build
 
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu126 && \
-    pip install --no-cache-dir trimesh scipy open3d opencv-python-headless transformations ruamel.yaml kornia omegaconf h5py ninja
+    pip install --no-cache-dir trimesh scipy open3d opencv-python-headless transformations ruamel.yaml kornia omegaconf h5py ninja warp-lang
 
-RUN pip install warp-lang
-
-# # Setup working directory and copy application code
-# WORKDIR /app
+# Copy application code
 COPY learning learning
 COPY weights weights
 COPY datareader.py datareader.py
@@ -115,4 +112,3 @@ COPY run_demo2.py run_demo2.py
 
 # Set default command
 CMD ["python", "run_demo2.py"]
-    
