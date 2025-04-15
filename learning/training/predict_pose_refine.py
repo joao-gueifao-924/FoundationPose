@@ -21,7 +21,8 @@ from Utils import *
 from datareader import *
 import gc
 
-
+# Allow PyTorch to use the TF32 Tensor Cores for matmul
+torch.set_float32_matmul_precision('medium') # Or 'medium'
 
 @torch.inference_mode()
 def make_crop_data_batch(render_size, ob_in_cams, mesh, rgb, depth, K, crop_ratio, xyz_map, normal_map=None, mesh_diameter=None, cfg=None, glctx=None, mesh_tensors=None, dataset:PoseRefinePairH5Dataset=None):
@@ -92,9 +93,10 @@ def make_crop_data_batch(render_size, ob_in_cams, mesh, rgb, depth, K, crop_rati
 
 
 class PoseRefinePredictor:
-  def __init__(self,):
+  def __init__(self, low_gpu_mem_mode=False):
     logging.info("welcome")
     self.amp = True
+    self.low_gpu_mem_mode = low_gpu_mem_mode
     self.run_name = "2023-10-28-18-33-37"
     model_name = 'model_best.pth'
     code_dir = os.path.dirname(os.path.realpath(__file__))
@@ -142,6 +144,8 @@ class PoseRefinePredictor:
     self.model.load_state_dict(ckpt)
 
     self.model.cuda().eval()
+    self.model = torch.compile(self.model)
+
     logging.info("init done")
     self.last_trans_update = None
     self.last_rot_update = None
@@ -188,9 +192,10 @@ class PoseRefinePredictor:
         A = torch.cat([pose_data.rgbAs[b:b+bs].cuda(), pose_data.xyz_mapAs[b:b+bs].cuda()], dim=1).float()
         B = torch.cat([pose_data.rgbBs[b:b+bs].cuda(), pose_data.xyz_mapBs[b:b+bs].cuda()], dim=1).float()
         logging.info("forward start")
-        torch.cuda.empty_cache()
-        gc.collect()
-        with torch.cuda.amp.autocast(enabled=self.amp):
+        if self.low_gpu_mem_mode:
+          torch.cuda.empty_cache()
+          gc.collect()
+        with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=self.amp):
           output = self.model(A,B)
         for k in output:
           output[k] = output[k].float()
@@ -237,8 +242,9 @@ class PoseRefinePredictor:
       B_in_cams = torch.cat(B_in_cams, dim=0).reshape(len(ob_in_cams),4,4)
 
     B_in_cams_out = B_in_cams@torch.tensor(tf_to_center[None], device='cuda', dtype=torch.float)
-    torch.cuda.empty_cache()
-    gc.collect()
+    if self.low_gpu_mem_mode:
+      torch.cuda.empty_cache()
+      gc.collect()
     self.last_trans_update = trans_delta
     self.last_rot_update = rot_mat_delta
 
@@ -293,8 +299,9 @@ class PoseRefinePredictor:
 
       canvas_refined = make_grid_image(canvas_refined, nrow=1, padding=padding, pad_value=255)
       canvas = make_grid_image([canvas, canvas_refined], nrow=2, padding=padding, pad_value=255)
-      torch.cuda.empty_cache()
-      gc.collect()
+      if self.low_gpu_mem_mode:
+        torch.cuda.empty_cache()
+        gc.collect()
       return B_in_cams_out, canvas
 
     return B_in_cams_out, None

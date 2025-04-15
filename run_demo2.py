@@ -15,33 +15,64 @@ import torch, gc, os
 from datetime import datetime
 import time
 
-#os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
-#os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
 
 ALGORITHM_OUTPUT_ROOT_FOLDER = "/algorithm_output"
 timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
 ALGORITHM_OUTPUT = ALGORITHM_OUTPUT_ROOT_FOLDER + "/" + timestamp
 
-import debugpy
-debugpy.listen(("0.0.0.0", 5678))
+IPD_DATASET_ROOT_DIR = "/ipd" # keep in sync with run_container.sh
+POSE_REFINER_TOTAL_ITERATIONS = 5
+DEBUG_LEVEL = 1
+DEBUG_DIR = '//debug'
+
+# Change these to accomodate lower GPU memory:
+INPUT_IMG_SHORTER_SIDE_LENGTH_PIXELS = 500
+LOW_GPU_MEMORY_MODE = True
+
+set_logging_format(level=logging.INFO)
+set_seed(0)
+
+# Example of VS Code configuration (launch.json) for debugpy
+# in order to attach to running Docker container
+# on localhost network:
+# 
+#   {
+#     "version": "0.2.0",
+#     "configurations": [
+#       {
+#         "name": "Python: Remote Attach",
+#         "type": "debugpy",
+#         "request": "attach",
+#         "connect": {
+#           "host": "localhost",
+#           "port": 5678
+#         },
+#         "pathMappings": [
+#           {
+#             "localRoot": "${workspaceFolder}",
+#             "remoteRoot": "."
+#           }
+#         ]
+#       }
+#     ]
+#   }
+DEBUG_STEP_THROUGH = True
+if DEBUG_STEP_THROUGH:
+    import debugpy
+    debugpy.listen(("0.0.0.0", 5678))
+
+
 
 if __name__=='__main__':
-    ipd_dataset_root_dir = "/ipd"
-    est_refine_iter=5
-    debug=1
-    debug_dir='//debug'
-    shorter_side = 500
 
-    set_logging_format()
-    set_seed(0)
-    os.system(f'rm -rf {debug_dir}/* && mkdir -p {debug_dir}/track_vis {debug_dir}/ob_in_cam')
+    os.system(f'rm -rf {DEBUG_DIR}/* && mkdir -p {DEBUG_DIR}/track_vis {DEBUG_DIR}/ob_in_cam')
 
-    if False:
+    if DEBUG_STEP_THROUGH:
         print("Waiting for client to attach...")
         debugpy.wait_for_client()
 
     #reader = YcbineoatReader(video_dir=test_scene_dir, shorter_side=500, zfar=np.inf)
-    reader = IpdReader(root_folder=ipd_dataset_root_dir, shorter_side=shorter_side)
+    reader = IpdReader(root_folder=IPD_DATASET_ROOT_DIR, shorter_side=INPUT_IMG_SHORTER_SIDE_LENGTH_PIXELS)
 
     # get only one group and one camera for now:
     group_id = reader.enumerate_groups()[0]
@@ -52,7 +83,8 @@ if __name__=='__main__':
     total_inferences_made = 0
 
     print("Instantiating PoseEstimator class...")
-    poseEstimator = PoseEstimator(debug=debug)
+    poseEstimator = PoseEstimator(debug=DEBUG_LEVEL, est_refine_iter=POSE_REFINER_TOTAL_ITERATIONS, 
+                                  debug_dir=DEBUG_DIR, low_gpu_mem_mode=LOW_GPU_MEMORY_MODE)
     print("Finished instantiating PoseEstimator class...")
 
     for scene_id in reader.enumerate_scenes(group_id):
@@ -69,23 +101,18 @@ if __name__=='__main__':
                 start_time_inference = time.perf_counter()
                 pose = poseEstimator.estimate(K=K, mesh=mesh, color=color, depth=depth, mask=mask)
                 end_time_inference = time.perf_counter()
-                elapsed_time_inference += end_time_inference - start_time_inference
+                this_inference_time = end_time_inference - start_time_inference
+                elapsed_time_inference += this_inference_time
                 total_inferences_made += 1
-                logging.info("pose inference done")
+                logging.info(f"Pose inference done in {this_inference_time:.1f} seconds")
 
                 # We need to clean-up memory between object pose inferences, 
                 # otherwise CUDA Out-of-Memory errors will frequently occur (non-deterministic).
-                
-                torch.cuda.empty_cache()
-                gc.collect()
-                # time.sleep(5)
+                if LOW_GPU_MEMORY_MODE:
+                    torch.cuda.empty_cache()
+                    gc.collect()
 
-                # for i in range(100):
-                #     print("#", end='')
-
-                # print("-------------", end = '\n')
-
-                if debug>=1 and pose is not None:
+                if DEBUG_LEVEL>=1 and pose is not None:
                     to_origin, extents = trimesh.bounds.oriented_bounds(mesh)
                     bbox = np.stack([-extents/2, extents/2], axis=0).reshape(2,3)
                     center_pose = pose@np.linalg.inv(to_origin)
@@ -106,9 +133,6 @@ if __name__=='__main__':
                         cv2.imshow(f"{(group_id, scene_id, camera_id)} - {(object_class_id, object_instance_id)}", vis[...,::-1])
                         cv2.waitKey(3000)
                         cv2.destroyAllWindows()
-
-                    
-
 
     end_time_overall = time.perf_counter()
 

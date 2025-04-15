@@ -116,8 +116,9 @@ def make_crop_data_batch(render_size, ob_in_cams, mesh, rgb, depth, K, crop_rati
 
 
 class ScorePredictor:
-  def __init__(self, amp=True):
+  def __init__(self, amp=True, low_gpu_mem_mode=False):
     self.amp = amp
+    self.low_gpu_mem_mode = low_gpu_mem_mode
     self.run_name = "2024-01-11-20-02-45"
 
     model_name = 'model_best.pth'
@@ -215,8 +216,9 @@ class ScorePredictor:
     scores = scores_global
 
     logging.info(f'forward done')
-    torch.cuda.empty_cache()
-    gc.collect()
+    if self.low_gpu_mem_mode:
+      torch.cuda.empty_cache()
+      gc.collect()
 
     if get_vis:
       logging.info("get_vis...")

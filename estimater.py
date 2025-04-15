@@ -274,21 +274,22 @@ class PoseEstimator:
   _scorer = None
   _refiner = None
   _est = None
-  _est_refine_iter=5
+  _est_refine_iter = 0
   _debug_dir = None
   _debug = 0
 
-  def __init__(self, est_refine_iter=5, debug_dir=None, debug=0):
+  def __init__(self, est_refine_iter=5, debug_dir=None, debug=0, low_gpu_mem_mode=False):
     self._glctx = dr.RasterizeCudaContext()
-    self._scorer = ScorePredictor()
-    self._refiner = PoseRefinePredictor()
-    _est = None
-    _est_refine_iter = est_refine_iter
-    _debug_dir = debug_dir
-    _debug = debug
+    self._scorer = ScorePredictor(low_gpu_mem_mode=low_gpu_mem_mode)
+    self._refiner = PoseRefinePredictor(low_gpu_mem_mode=low_gpu_mem_mode)
+    self._est = None
+    self._est_refine_iter = est_refine_iter
+    self._debug_dir = debug_dir
+    self._debug = debug
 
   def estimate(self, K: np.array, mesh: trimesh.base.Trimesh, color: np.ndarray, depth: np.array, mask: np.array) -> np.array:
-    _est = FoundationPose(model_pts=mesh.vertices,
+    start_time = time.time()
+    self._est = FoundationPose(model_pts=mesh.vertices,
                                 model_normals=mesh.vertex_normals,
                                 mesh=mesh,
                                 scorer=self._scorer,
@@ -296,8 +297,8 @@ class PoseEstimator:
                                 debug_dir=self._debug_dir,
                                 debug=self._debug,
                                 glctx=self._glctx)
-    
-    pose = _est.register(K=K, rgb=color, depth=depth, ob_mask=mask, iteration=self._est_refine_iter)
+    end_time = time.time()
+    logging.info(f"FoundationPose instantiation time: {end_time-start_time:0.1f} seconds")
+    pose = self._est.register(K=K, rgb=color, depth=depth, ob_mask=mask, iteration=self._est_refine_iter)
     return pose
-
   
