@@ -192,7 +192,7 @@ class ScorePredictor:
         if pose_data.normalAs is not None:
           A = torch.cat([A, pose_data.normalAs.cuda().float()], dim=1)
           B = torch.cat([B, pose_data.normalBs.cuda().float()], dim=1)
-        with torch.cuda.amp.autocast(enabled=self.amp):
+        with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=self.amp):
           output = self.model(A, B, L=len(A))
         scores_cur = output["score_logit"].float().reshape(-1)
         ids.append(scores_cur.argmax()+b)

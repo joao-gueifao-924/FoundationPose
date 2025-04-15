@@ -157,7 +157,9 @@ class PoseRefinePredictor:
     @rgb: np array (H,W,3)
     @ob_in_cams: np array (N,4,4)
     '''
-    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    torch.set_default_dtype(torch.float32)
+    torch.set_default_device('cuda')
+    
     logging.info(f'ob_in_cams:{ob_in_cams.shape}')
     tf_to_center = np.eye(4)
     ob_centered_in_cams = ob_in_cams
