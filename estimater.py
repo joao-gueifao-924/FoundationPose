@@ -286,6 +286,8 @@ class PoseEstimator:
     self._est_refine_iter = est_refine_iter
     self._debug_dir = debug_dir
     self._debug = debug
+    wp.force_load(device='cuda')
+
 
   def estimate(self, K: np.array, mesh: trimesh.base.Trimesh, color: np.ndarray, depth: np.array, mask: np.array) -> np.array:
     start_time = time.time()
