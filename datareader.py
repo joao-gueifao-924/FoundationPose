@@ -8,7 +8,7 @@
 
 
 from Utils import *
-import json, os, random
+import json, os, random, glob
 
 
 BOP_LIST = ['lmo','tless','ycbv','hb','tudl','icbin','itodd']

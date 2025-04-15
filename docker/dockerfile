@@ -1,70 +1,110 @@
-FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+# Stage 1: Builder stage with development tools
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04 AS builder
 
-# Install dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gnupg2 curl ca-certificates wget ca-certificates gnupg gcc g++ make \
-    && rm -rf /var/lib/apt/lists/*
+# Set ARG for noninteractive frontend to avoid prompts
+ARG DEBIAN_FRONTEND=noninteractive
 
+# Install essential build dependencies and runtime dependencies needed during build
+RUN apt-get update && apt-get install -y --no-install-recommends
+RUN apt-get install -y \
+     git cmake wget \
+     python3-dev python3-pip python-is-python3 python3.12-venv
 
-RUN apt-get update && \
-    apt-get install -y libgtk2.0-dev && \
-    apt-get install -y wget bzip2 ca-certificates curl git vim tmux g++ gcc build-essential cmake checkinstall gfortran libjpeg8-dev libtiff5-dev pkg-config yasm libavcodec-dev libavformat-dev libswscale-dev
-
-# Before the pybind11 installation, add this line to install Python development headers
-RUN apt-get update && apt-get install -y python3-dev python3-pip
-
-RUN cd / && git clone https://github.com/pybind/pybind11 &&\
-    cd pybind11 && git checkout v2.13.6 &&\
-    mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DPYBIND11_INSTALL=ON -DPYBIND11_TEST=OFF &&\
-    make -j$(nproc) && make install
-
-
-RUN cd / && wget https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz &&\
-    tar xvzf ./eigen-3.4.0.tar.gz &&\
-    cd eigen-3.4.0 &&\
-    mkdir build &&\
-    cd build &&\
-    cmake .. &&\
-    make install
-
-SHELL ["/bin/bash", "--login", "-c"]
-
-RUN apt-get install -y python-is-python3 python3-pip python3.12-venv
+# We don't use Python virtual environments. We install everything into root environment.
 RUN python -m pip config set global.break-system-packages true
 
-RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
-RUN pip install scipy joblib scikit-learn ruamel.yaml trimesh pyyaml opencv-python imageio open3d transformations warp-lang einops kornia pyrender
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     git curl wget ca-certificates gnupg build-essential  \
+#     bzip2 checkinstall gfortran \
+#     libjpeg8-dev libtiff6 pkg-config yasm \
 
-# Skip NVIDIA KAOLIN installation for now. We don't need it because we are only going to perform 3D model-based pose estimation.
-# Kaolin is solely used for model-free pose estimation pipelines.
-# RUN cd / && git clone --recursive https://github.com/NVIDIAGameWorks/kaolin
-# RUN conda activate my && cd /kaolin &&\
-#     FORCE_CUDA=1 python setup.py develop
+#     libboost-all-dev \
+#     libgl1 libglx-mesa0 \
+#     ninja-build \
+# && apt-get clean \
+# && rm -rf /var/lib/apt/lists/*
 
-RUN cd / && git clone https://github.com/NVlabs/nvdiffrast && cd /nvdiffrast && pip install .
+# Build and install pybind11
+RUN cd /opt && git clone https://github.com/pybind/pybind11 &&\
+    cd pybind11 && git checkout v2.13.6 &&\
+    mkdir build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -DPYBIND11_INSTALL=ON -DPYBIND11_TEST=OFF -DCMAKE_INSTALL_PREFIX=/install_prefix &&\
+    make -j$(nproc) && make install && \
+    rm -rf /opt/pybind11
 
-ENV OPENCV_IO_ENABLE_OPENEXR=1
+# Build and install Eigen
+RUN cd /opt && wget https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz &&\
+    tar xvzf ./eigen-3.4.0.tar.gz &&\
+    cd eigen-3.4.0 &&\
+    mkdir build && cd build &&\
+    cmake .. -DCMAKE_INSTALL_PREFIX=/install_prefix &&\
+    make install && \
+    rm -rf /opt/eigen-3.4.0 /opt/eigen-3.4.0.tar.gz
 
-RUN pip install scikit-image meshcat webdataset omegaconf pypng roma seaborn opencv-contrib-python openpyxl wandb imgaug Ninja xlsxwriter timm albumentations xatlas rtree nodejs jupyterlab objaverse g4f ultralytics==8.0.120 pycocotools videoio numba
-RUN pip install h5py numpy
 
-RUN apt-get install -y libboost-all-dev
+# Build and install nvdiffrast
+RUN cd /opt && git clone https://github.com/NVlabs/nvdiffrast && \
+    cd nvdiffrast && pip install --no-cache-dir . && \
+    rm -rf /opt/nvdiffrast
 
-RUN apt-get update && apt-get install -y libgl1 libglx-mesa0
-
-
-# Useful for debugging dockerized python scripts
-RUN pip install debugpy
-
-ENV NVIDIA_DISABLE_REQUIRE=1
-ENV SHELL=/bin/bash
-RUN ln -sf /bin/bash /bin/sh
-
+# Copy and build custom C++ code
 COPY mycpp mycpp
 COPY build_all.sh build_all.sh
-RUN chmod +x build_all.sh
-RUN ./build_all.sh
+RUN chmod +x build_all.sh && ./build_all.sh  
+        # This script builds 'mycpp' and leaves artifacts in mycpp/build
 
+
+# # --- Stage 2: Final runtime image ---
+# Use the 'devel' image instead of 'runtime' because CUDA headers are needed at runtime
+FROM nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+
+
+# # Set ARG for noninteractive frontend
+ARG DEBIAN_FRONTEND=noninteractive
+
+# # Install only necessary runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends
+RUN apt-get install -y \
+     python3 python3-pip python-is-python3 \
+     libgl1 libglx-mesa0 \
+# #     # Add runtime libs for OpenCV (avoid -dev packages)
+# #     # Add runtime libs for Boost (specific versions needed by mycpp, adjust based on linkage)
+# #     # Check Ubuntu 24.04 package names/versions - these are examples
+# #     libboost-program-options1.83.0 libboost-filesystem1.83.0 libboost-thread1.83.0 libboost-python1.83.0 \
+# #     # Runtime GL libs
+# #     libgl1 libglx-mesa0 \
+     && apt-get clean \
+     && rm -rf /var/lib/apt/lists/*
+
+# # Set Environment variables
+# ENV NVIDIA_DISABLE_REQUIRE=1
+# ENV SHELL=/bin/bash
+# ENV OPENCV_IO_ENABLE_OPENEXR=1
+# # Add compiled custom libs to the library path if they are not in standard locations
+# ENV LD_LIBRARY_PATH=/install_prefix/lib:$LD_LIBRARY_PATH
+
+# # Set Python config again in final stage
+RUN python -m pip config set global.break-system-packages true
+
+# # Copy installed Python packages from builder stage
+# # Adjust python version path if necessary (e.g., python3.12)
+COPY --from=builder /usr/local/lib/python3.12/dist-packages /usr/local/lib/python3.12/dist-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+# # Copy compiled C++ dependencies (pybind11, Eigen) from builder stage install prefix
+#COPY --from=builder /install_prefix /install_prefix
+# # Make sure Eigen headers are findable if needed at runtime (unlikely but possible)
+#COPY --from=builder /install_prefix/include/eigen3 /usr/local/include/eigen3
+
+# # Copy compiled artifacts from custom C++ build (adjust source path based on build_all.sh)
+COPY --from=builder /mycpp/build /mycpp/build
+
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu126 && \
+    pip install --no-cache-dir trimesh scipy open3d opencv-python-headless transformations ruamel.yaml kornia omegaconf h5py ninja
+
+RUN pip install warp-lang
+
+# # Setup working directory and copy application code
+# WORKDIR /app
 COPY learning learning
 COPY weights weights
 COPY datareader.py datareader.py
@@ -73,6 +113,6 @@ COPY offscreen_renderer.py offscreen_renderer.py
 COPY Utils.py Utils.py
 COPY run_demo2.py run_demo2.py
 
-
-
+# Set default command
 CMD ["python", "run_demo2.py"]
+    

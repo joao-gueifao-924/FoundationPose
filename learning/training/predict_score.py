@@ -14,7 +14,6 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from omegaconf import OmegaConf
-from tqdm import tqdm
 code_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(f'{code_dir}/../../../')
 from learning.datasets.h5_dataset import *

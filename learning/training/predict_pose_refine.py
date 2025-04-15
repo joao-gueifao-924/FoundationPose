@@ -7,9 +7,7 @@
 # license agreement from NVIDIA CORPORATION is strictly prohibited.
 
 
-import functools
 import os,sys,kornia
-import time
 code_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.append(f'{code_dir}/../../')
 import numpy as np
@@ -159,7 +157,7 @@ class PoseRefinePredictor:
     '''
     torch.set_default_dtype(torch.float32)
     torch.set_default_device('cuda')
-    
+
     logging.info(f'ob_in_cams:{ob_in_cams.shape}')
     tf_to_center = np.eye(4)
     ob_centered_in_cams = ob_in_cams
