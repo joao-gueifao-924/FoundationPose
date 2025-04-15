@@ -60,17 +60,19 @@ ENV NVIDIA_DISABLE_REQUIRE=1
 ENV SHELL=/bin/bash
 RUN ln -sf /bin/bash /bin/sh
 
-COPY learning learning
 COPY mycpp mycpp
+COPY build_all.sh build_all.sh
+RUN chmod +x build_all.sh
+RUN ./build_all.sh
+
+COPY learning learning
 COPY weights weights
 COPY datareader.py datareader.py
 COPY estimater.py estimater.py
 COPY offscreen_renderer.py offscreen_renderer.py
-COPY run_demo2.py run_demo2.py
 COPY Utils.py Utils.py
+COPY run_demo2.py run_demo2.py
 
-COPY build_all.sh build_all.sh
-RUN chmod +x build_all.sh
-RUN ./build_all.sh
+
 
 CMD ["python", "run_demo2.py"]
