@@ -25,11 +25,13 @@ POSE_REFINER_TOTAL_ITERATIONS = 5
 DEBUG_LEVEL = 1
 DEBUG_DIR = '//debug'
 
+TARGET_OBJECT_IDS = [8, 19]
+
 # Change these to accomodate lower GPU memory:
 INPUT_IMG_SHORTER_SIDE_LENGTH_PIXELS = 500
 LOW_GPU_MEMORY_MODE = True
 
-set_logging_format(level=logging.INFO)
+set_logging_format(level=logging.WARN)
 set_seed(0)
 
 # Example of VS Code configuration (launch.json) for debugpy
@@ -56,7 +58,7 @@ set_seed(0)
 #       }
 #     ]
 #   }
-DEBUG_STEP_THROUGH = True
+DEBUG_STEP_THROUGH = False
 if DEBUG_STEP_THROUGH:
     import debugpy
     debugpy.listen(("0.0.0.0", 5678))
@@ -70,6 +72,7 @@ if __name__=='__main__':
     if DEBUG_STEP_THROUGH:
         print("Waiting for client to attach...")
         debugpy.wait_for_client()
+        print("Client attached. Continuing...")
 
     #reader = YcbineoatReader(video_dir=test_scene_dir, shorter_side=500, zfar=np.inf)
     reader = IpdReader(root_folder=IPD_DATASET_ROOT_DIR, shorter_side=INPUT_IMG_SHORTER_SIDE_LENGTH_PIXELS)
@@ -82,10 +85,10 @@ if __name__=='__main__':
     elapsed_time_inference = 0
     total_inferences_made = 0
 
-    print("Instantiating PoseEstimator class...")
+    logging.info("Instantiating PoseEstimator class...")
     poseEstimator = PoseEstimator(debug=DEBUG_LEVEL, est_refine_iter=POSE_REFINER_TOTAL_ITERATIONS, 
                                   debug_dir=DEBUG_DIR, low_gpu_mem_mode=LOW_GPU_MEMORY_MODE)
-    print("Finished instantiating PoseEstimator class...")
+    logging.info("Finished instantiating PoseEstimator class...")
 
     for scene_id in reader.enumerate_scenes(group_id):
         logging.info(f"Start of scene: {scene_id}")
@@ -93,13 +96,17 @@ if __name__=='__main__':
         depth = reader.get_depth_image(group_id, scene_id, camera_id)
 
         for object_class_id, object_instance_ids in reader.enumerate_objects(group_id, scene_id, camera_id).items():
-            object_instance_ids = [object_instance_ids[0]] # use only one object class instance for now, just to test drive
+
+            if TARGET_OBJECT_IDS is not None and len(TARGET_OBJECT_IDS) > 0 and object_class_id not in TARGET_OBJECT_IDS:
+                continue
+
+            object_instance_ids = object_instance_ids[0 : min(2, len(object_instance_ids)) ] # use only a couple of instances for each object class, just to test drive
             for object_instance_id in object_instance_ids:
                 mask = reader.get_visible_object_mask(group_id, scene_id, camera_id, object_instance_id)
                 mesh = reader.get_object_mesh(object_class_id)
                 K = reader.get_camera_intrinsics_K_matrix(group_id, scene_id, camera_id)
                 start_time_inference = time.perf_counter()
-                pose = poseEstimator.estimate(K=K, mesh=mesh, color=color, depth=depth, mask=mask)
+                pose = poseEstimator.estimate(object_class_id=object_class_id, K=K, mesh=mesh, color=color, depth=depth, mask=mask)
                 end_time_inference = time.perf_counter()
                 this_inference_time = end_time_inference - start_time_inference
                 elapsed_time_inference += this_inference_time
@@ -126,9 +133,10 @@ if __name__=='__main__':
                         group_id_path = ALGORITHM_OUTPUT + "/" + f"{group_id:06d}"
                         scene_id_path = group_id_path + "/" + f"{scene_id:06d}"
                         camera_id_path = scene_id_path + "/" + str(camera_id) # no leading zeros for camera id numeric value
-                        os.makedirs(camera_id_path, exist_ok=True)
+                        obj_class_id_path = camera_id_path + "/" + f"{object_class_id:06d}"
+                        os.makedirs(obj_class_id_path, exist_ok=True)
                         image_title = f"{object_instance_id:06d}"
-                        cv2.imwrite(camera_id_path + "/" + image_title + ".png", vis[...,::-1])
+                        cv2.imwrite(obj_class_id_path + "/" + image_title + ".png", vis[...,::-1])
                     else:
                         cv2.imshow(f"{(group_id, scene_id, camera_id)} - {(object_class_id, object_instance_id)}", vis[...,::-1])
                         cv2.waitKey(3000)
@@ -137,8 +145,8 @@ if __name__=='__main__':
     end_time_overall = time.perf_counter()
 
     elapsed_time_overall = end_time_overall - start_time_overrall
-    print(f"Elapsed time overall: {elapsed_time_overall:.1f} seconds")
+    logging.info(f"Elapsed time overall: {elapsed_time_overall:.1f} seconds")
 
     if total_inferences_made > 0:
-        print(f"Avg. loop iter time (per object instance): {elapsed_time_overall/total_inferences_made:.1f} seconds")
-        print(f"Avg. FoundationPose inference time: {elapsed_time_inference/total_inferences_made:.1f} seconds")
+        logging.info(f"Avg. loop iter time (per object instance): {elapsed_time_overall/total_inferences_made:.1f} seconds")
+        logging.info(f"Avg. FoundationPose inference time: {elapsed_time_inference/total_inferences_made:.1f} seconds")

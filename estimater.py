@@ -14,6 +14,7 @@ from learning.training.predict_score import *
 from learning.training.predict_pose_refine import *
 import yaml
 
+RECYCLE_FOUNDATIONPOSE_INSTANCE = True
 
 class FoundationPose:
   def __init__(self, model_pts, model_normals, symmetry_tfs=None, mesh=None, scorer:ScorePredictor=None, refiner:PoseRefinePredictor=None, glctx=None, debug=0, debug_dir='/home/bowen/debug/novel_pose_debug/'):
@@ -23,10 +24,12 @@ class FoundationPose:
     self.debug_dir = debug_dir
     if self.debug_dir is not None:
       os.makedirs(debug_dir, exist_ok=True)
-
+    
+    start_time = time.time()
     self.reset_object(model_pts, model_normals, symmetry_tfs=symmetry_tfs, mesh=mesh)
+    logging.info(f"elapsed time: {time.time() - start_time:0.1f} seconds")
+    
     self.make_rotation_grid(min_n_views=40, inplane_step=60)
-
     self.glctx = glctx
 
     if scorer is not None:
@@ -66,9 +69,9 @@ class FoundationPose:
     logging.info(f'self.pts:{self.pts.shape}')
     self.mesh_path = None
     self.mesh = mesh
-    if self.mesh is not None:
-      self.mesh_path = f'/tmp/{uuid.uuid4()}.obj'
-      self.mesh.export(self.mesh_path)
+    # if self.mesh is not None:
+    #   self.mesh_path = f'/tmp/{uuid.uuid4()}.obj'
+    #   self.mesh.export(self.mesh_path)
     self.mesh_tensors = make_mesh_tensors(self.mesh)
 
     if symmetry_tfs is None:
@@ -270,13 +273,6 @@ class FoundationPose:
 
 
 class PoseEstimator:
-  _glctx = None
-  _scorer = None
-  _refiner = None
-  _est = None
-  _est_refine_iter = 0
-  _debug_dir = None
-  _debug = 0
 
   def __init__(self, est_refine_iter=5, debug_dir=None, debug=0, low_gpu_mem_mode=False):
     self._glctx = dr.RasterizeCudaContext()
@@ -286,21 +282,40 @@ class PoseEstimator:
     self._est_refine_iter = est_refine_iter
     self._debug_dir = debug_dir
     self._debug = debug
+    self._low_gpu_mem_mode = low_gpu_mem_mode
     wp.force_load(device='cuda')
+    self._previous_object_class_id = None
 
+    if RECYCLE_FOUNDATIONPOSE_INSTANCE:
+      mesh_tmp = trimesh.primitives.Box(extents=np.ones((3)), transform=np.eye(4)).to_mesh()
+      self._est = FoundationPose(model_pts=mesh_tmp.vertices.copy(), model_normals=mesh_tmp.vertex_normals.copy(), 
+                                 symmetry_tfs=None, mesh=mesh_tmp, scorer=self._scorer, refiner=self._refiner, glctx=self._glctx, 
+                                 debug_dir=self._debug_dir, debug=self._debug)
 
-  def estimate(self, K: np.array, mesh: trimesh.base.Trimesh, color: np.ndarray, depth: np.array, mask: np.array) -> np.array:
+  def estimate(self, object_class_id: int, K: np.array, mesh: trimesh.base.Trimesh, color: np.ndarray, depth: np.array, mask: np.array) -> np.array:
     start_time = time.time()
-    self._est = FoundationPose(model_pts=mesh.vertices,
-                                model_normals=mesh.vertex_normals,
-                                mesh=mesh,
-                                scorer=self._scorer,
-                                refiner=self._refiner,
-                                debug_dir=self._debug_dir,
-                                debug=self._debug,
-                                glctx=self._glctx)
+    device='cuda:0'
+    torch.cuda.set_device(device)
+
+    if RECYCLE_FOUNDATIONPOSE_INSTANCE:
+      self._est.glctx = dr.RasterizeCudaContext(device=device)
+      self._est.to_device(device)
+      if self._previous_object_class_id != object_class_id:
+        reset_obj_start_time = time.time()
+        self._est.reset_object(model_pts=mesh.vertices.copy(), model_normals=mesh.vertex_normals.copy(), symmetry_tfs=None, mesh=mesh)
+        logging.info(f"FoundationPose reset_object() time: {time.time()-reset_obj_start_time:0.1f} seconds")
+    else:
+      self._est = FoundationPose(model_pts=mesh.vertices,
+                                  model_normals=mesh.vertex_normals,
+                                  mesh=mesh,
+                                  scorer=self._scorer,
+                                  refiner=self._refiner,
+                                  debug_dir=self._debug_dir,
+                                  debug=self._debug,
+                                  glctx=self._glctx)
     end_time = time.time()
-    logging.info(f"FoundationPose instantiation time: {end_time-start_time:0.1f} seconds")
+    logging.info(f"FoundationPose pre-registration time: {end_time-start_time:0.1f} seconds")
     pose = self._est.register(K=K, rgb=color, depth=depth, ob_mask=mask, iteration=self._est_refine_iter)
+    self._previous_object_class_id = object_class_id
     return pose
   
